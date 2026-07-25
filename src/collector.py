@@ -72,8 +72,11 @@ VISION_BASE = "https://data.binance.vision"
 # beginning at the first UTC midnight after the freeze commit (2026-07-23).
 STREAM_START = dt.date(2026, 7, 24)
 
-# Binance publishes daily archives with a 1-2 day lag; use 2 to be safe.
-PUBLICATION_LAG_DAYS = 2
+# Binance publishes daily archives with a ~1 day lag. We probe from D-1:
+# if a day is not yet published every file 404s, cmd_pull_day returns the
+# "not published" sentinel and the day is retried on the next run, so an
+# optimistic lag costs nothing and avoids sitting on available data.
+PUBLICATION_LAG_DAYS = 1
 
 # Universe refresh cadence (protocol §3: weekly membership updates).
 UNIVERSE_MAX_AGE_DAYS = 7
