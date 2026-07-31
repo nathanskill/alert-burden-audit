@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Ops record for REF-2026-017: the exact launchd schedule driving
+     run_daily.sh (this template mirrors the installed user LaunchAgent,
+     net.nathanskill.alertburden.daily, with the local repository path
+     replaced by __REPO__). Install: substitute __REPO__, place under
+     ~/Library/LaunchAgents/, then `launchctl load`. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>net.nathanskill.alertburden.daily</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__REPO__/run_daily.sh</string>
+    </array>
+
+    <!-- Calendar triggers rather than StartInterval: with StartInterval a
+         sleeping laptop simply misses windows, and only one catch-up run
+         fires on wake. StartCalendarInterval gives four fixed daily
+         attempts, and launchd runs a missed calendar job once the machine
+         wakes. Four attempts/day means a single missed window is harmless
+         (each run collects every uncollected published day anyway). -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>17</integer></dict>
+        <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>17</integer></dict>
+        <dict><key>Hour</key><integer>18</integer><key>Minute</key><integer>17</integer></dict>
+        <dict><key>Hour</key><integer>23</integer><key>Minute</key><integer>17</integer></dict>
+    </array>
+
+    <!-- Also run once at load / login, so a reboot collects immediately. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__REPO__/logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__REPO__/logs/launchd.err.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>__REPO__</string>
+
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>
