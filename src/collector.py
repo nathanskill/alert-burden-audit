@@ -21,10 +21,15 @@ protocol/locked_protocol_v1.0.md (frozen at commit 0ac2bbd):
 
 Subcommands
 -----------
-  --update-universe        Build and archive a new universe membership table.
-  --pull-day YYYY-MM-DD    Pull one UTC day of archives for the current universe.
+  --update-universe        Build and archive a new universe membership table
+                           (refuses to overwrite a same-day table).
+  --pull-day YYYY-MM-DD    Pull one UTC day of archives under the universe
+                           table governing that day (newest table dated
+                           strictly before the day; Amendment 4).
+  --requeue-day YYYY-MM-DD Remove a day from days_completed.txt so the next
+                           --daily re-pulls it (recovery path).
   --daily                  Pull all uncollected published days in the evaluation
-                           window; refresh the universe if it is >7 days old.
+                           window; refresh the universe if it is >=7 days old.
 
 Dependencies: Python 3.9+ standard library + `requests`.
 
@@ -72,11 +77,17 @@ VISION_BASE = "https://data.binance.vision"
 # beginning at the first UTC midnight after the freeze commit (2026-07-23).
 STREAM_START = dt.date(2026, 7, 24)
 
-# Binance publishes daily archives with a ~1 day lag. We probe from D-1:
-# if a day is not yet published every file 404s, cmd_pull_day returns the
-# "not published" sentinel and the day is retried on the next run, so an
-# optimistic lag costs nothing and avoids sitting on available data.
-PUBLICATION_LAG_DAYS = 1
+# Binance publishes daily archives with a 1-2 day lag (protocol §4). We
+# probe from D-2. The earlier D-1 setting relied on the all-404 sentinel,
+# which does not cover PARTIAL publication: on 2026-07-27..30, probes at
+# ~02:17 UTC (D+1) found only 49-69% of files published, and the days were
+# wrongly marked complete (incident note: protocol/incident_20260731_partial_publication.md).
+PUBLICATION_LAG_DAYS = 2
+
+# A 404 for a universe symbol is treated as late publication (retry the
+# day) until the day is this old; only then is a persistent 404 accepted
+# as a genuine listing gap and the day allowed to complete.
+LISTING_GAP_DEADLINE_DAYS = 5
 
 # Universe refresh cadence (protocol §3: weekly membership updates).
 UNIVERSE_MAX_AGE_DAYS = 7
@@ -86,9 +97,22 @@ TOP_N_EXCLUDED = 50
 TRAILING_DAYS = 30
 
 # ---- Mechanical exclusion lists (documented; no manual curation) ----------
-# Leveraged-token bases end in one of these suffixes. Applied to the BASE
-# asset (e.g. BTCUP, ETHDOWN, EOSBULL, XRPBEAR), not to ordinary symbols.
-LEVERAGED_SUFFIXES = ("UP", "DOWN", "BULL", "BEAR")
+# Exact base assets of historical Binance leveraged tokens (BLVTs, delisted
+# 2022) and FTX-issued BULL/BEAR tokens (delisted 2020). Exact match only:
+# the previous suffix heuristic (endswith 'UP' etc.) wrongly dropped ordinary
+# assets JUP and SYRUP (see Amendment 2). Restores conformance with frozen
+# protocol section 3, which specifies no leveraged-token exclusion.
+LEVERAGED_BASES = frozenset({
+    "BTCUP", "BTCDOWN", "ETHUP", "ETHDOWN", "BNBUP", "BNBDOWN",
+    "ADAUP", "ADADOWN", "XRPUP", "XRPDOWN", "DOTUP", "DOTDOWN",
+    "LINKUP", "LINKDOWN", "LTCUP", "LTCDOWN", "EOSUP", "EOSDOWN",
+    "TRXUP", "TRXDOWN", "BCHUP", "BCHDOWN", "AAVEUP", "AAVEDOWN",
+    "SUSHIUP", "SUSHIDOWN", "UNIUP", "UNIDOWN", "XLMUP", "XLMDOWN",
+    "FILUP", "FILDOWN", "YFIUP", "YFIDOWN", "1INCHUP", "1INCHDOWN",
+    "SXPUP", "SXPDOWN", "XTZUP", "XTZDOWN",
+    "BULL", "BEAR", "ETHBULL", "ETHBEAR", "EOSBULL", "EOSBEAR",
+    "XRPBULL", "XRPBEAR", "BNBBULL", "BNBBEAR",
+})
 
 # Stablecoin / fiat-pegged BASE assets: pairs such as USDCUSDT or EURUSDT are
 # stable-vs-stable FX pairs, not small-cap crypto assets, and are excluded.
@@ -189,25 +213,47 @@ def eligible_symbols(session):
         if not s.get("isSpotTradingAllowed", False):
             continue
         base = s.get("baseAsset", "")
-        if any(base.endswith(suf) for suf in LEVERAGED_SUFFIXES):
+        if base in LEVERAGED_BASES:
+            log.info("universe filter: %s excluded (leveraged-token base %s)",
+                     s["symbol"], base)
             continue
         if base in STABLE_FIAT_BASES:
+            log.info("universe filter: %s excluded (stable/fiat base %s)",
+                     s["symbol"], base)
             continue
         out.append(s["symbol"])
     return sorted(out)
 
 
 def trailing_quote_volume(session, symbol):
-    """Sum of quoteVolume over the last TRAILING_DAYS daily klines."""
+    """Sum of quoteVolume over the last TRAILING_DAYS COMPLETE UTC days.
+    Requests one extra daily kline and drops the final (in-progress) candle,
+    so intraday run time never leaks into the ranking. (The two tables
+    archived before this fix used 29 complete days + a partial candle;
+    noted in Amendment 1.)"""
     resp = http_get(session, API_BASE + "/api/v3/klines",
                     params={"symbol": symbol, "interval": "1d",
-                            "limit": TRAILING_DAYS})
+                            "limit": TRAILING_DAYS + 1})
     resp.raise_for_status()
-    return sum(float(k[7]) for k in resp.json())  # index 7 = quote volume
+    klines = resp.json()
+    if klines:
+        klines = klines[:-1]  # drop the in-progress current-day candle
+    return sum(float(k[7]) for k in klines[-TRAILING_DAYS:])  # idx 7 = quote vol
 
 
 def cmd_update_universe():
     ensure_dirs()
+    date_str = utc_today().isoformat()
+    path = os.path.join(UNIVERSE_DIR, "universe_%s.csv" % date_str)
+    art_path = os.path.join(ART_UNIVERSE_DIR, os.path.basename(path))
+    if os.path.exists(path) or os.path.exists(art_path):
+        # A table dated today already exists (and may already be mirrored to
+        # the hash-signed public archive). A second same-day run would rank on
+        # a different partial state and silently produce a conflicting table;
+        # refuse rather than overwrite.
+        log.error("universe table %s already exists (hash-signed archive); "
+                  "refusing same-day overwrite", os.path.basename(path))
+        return None
     session = requests.Session()
     symbols = eligible_symbols(session)
     log.info("eligible symbols after mechanical filters: %d", len(symbols))
@@ -224,8 +270,6 @@ def cmd_update_universe():
     # Deterministic ranking: volume desc, then symbol asc for ties.
     ranked = sorted(vols.items(), key=lambda kv: (-kv[1], kv[0]))
 
-    date_str = utc_today().isoformat()
-    path = os.path.join(UNIVERSE_DIR, "universe_%s.csv" % date_str)
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["symbol", "vol30d", "rank", "included"])
@@ -267,6 +311,23 @@ def latest_universe():
     return os.path.join(UNIVERSE_DIR, name), date
 
 
+def universe_for_day(date_str):
+    """Newest archived universe table dated STRICTLY BEFORE the stream day.
+    A table dated D is computed during day D from trailing klines that
+    include the partial day-D candle, so it may not govern day D or any
+    earlier day (Amendment 4)."""
+    day = dt.date.fromisoformat(date_str)
+    if not os.path.isdir(UNIVERSE_DIR):
+        return None, None
+    best = (None, None)
+    for f in sorted(os.listdir(UNIVERSE_DIR)):
+        if f.startswith("universe_") and f.endswith(".csv"):
+            d = dt.date.fromisoformat(f[len("universe_"):-len(".csv")])
+            if d < day:
+                best = (os.path.join(UNIVERSE_DIR, f), d)
+    return best
+
+
 def included_symbols(universe_path):
     with open(universe_path, newline="") as f:
         return [row["symbol"] for row in csv.DictReader(f)
@@ -299,17 +360,34 @@ def fetch_one(session, url, local_path):
     res = {"file": fname, "status": "failed", "bytes": 0,
            "sha256": "", "source_checksum_ok": ""}
 
-    # Resumability: skip files already present with matching remote size.
+    # Resumability: a file already on disk is skipped only if its CONTENT
+    # verifies against the official .CHECKSUM sidecar (size-only matching
+    # cannot catch corruption). Fall back to a HEAD Content-Length check
+    # when no sidecar is published; either way the row carries our sha256.
     if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
         try:
-            head = session.head(url, timeout=HTTP_TIMEOUT)
-            if (head.status_code == 200 and
-                    int(head.headers.get("Content-Length", -1))
-                    == os.path.getsize(local_path)):
-                res.update(status="skipped",
-                           bytes=os.path.getsize(local_path))
-                return res
-        except requests.RequestException:
+            digest = sha256_file(local_path)
+            csum = http_get(session, url + ".CHECKSUM")
+            if csum.status_code == 200 and csum.text.strip():
+                official = csum.text.split()[0].strip().lower()
+                if official == digest:
+                    res.update(status="skipped",
+                               bytes=os.path.getsize(local_path),
+                               sha256=digest, source_checksum_ok=1)
+                    return res
+                log.warning("existing %s fails official CHECKSUM; "
+                            "re-downloading", fname)
+                os.remove(local_path)
+            else:
+                head = session.head(url, timeout=HTTP_TIMEOUT)
+                if (head.status_code == 200 and
+                        int(head.headers.get("Content-Length", -1))
+                        == os.path.getsize(local_path)):
+                    res.update(status="skipped",
+                               bytes=os.path.getsize(local_path),
+                               sha256=digest)
+                    return res
+        except (requests.RequestException, OSError):
             pass  # fall through to re-download
 
     resp = http_get(session, url)
@@ -339,8 +417,28 @@ def fetch_one(session, url, local_path):
                           fname, official, digest)
                 os.remove(tmp)
                 return res
-    except requests.RequestException:
-        pass  # checksum endpoint unreachable: record our own hash only
+        # Non-200 without an exception (e.g. 404): no sidecar published;
+        # accept the file with our own sha256 and source_checksum_ok=''.
+    except requests.RequestException as exc:
+        # Sidecar endpoint unreachable is a transient transport failure,
+        # not "no checksum published": treat as retryable so the day is
+        # re-pulled rather than accepted unverified.
+        log.warning("CHECKSUM endpoint unreachable for %s (%s); treating "
+                    "as retryable failure", fname, exc)
+        os.remove(tmp)
+        return res
+
+    # Structural validation: reject truncated or corrupt archives before
+    # accepting them (testzip re-reads every member and checks CRCs).
+    try:
+        with zipfile.ZipFile(tmp) as zf:
+            bad = zf.testzip()
+        if bad is not None:
+            raise zipfile.BadZipFile("CRC failure on member %s" % bad)
+    except (zipfile.BadZipFile, OSError) as exc:
+        log.error("zip validation failed for %s: %s", fname, exc)
+        os.remove(tmp)
+        return res  # status stays "failed"; retried on the next run
 
     os.replace(tmp, local_path)
     res.update(status="ok", bytes=os.path.getsize(local_path), sha256=digest)
@@ -364,6 +462,30 @@ def append_manifest(rows):
     _append_csv(MANIFEST_CSV, MANIFEST_FIELDS, rows)
 
 
+def load_manifested_keys():
+    """Set of (date, file) pairs already recorded in the pull manifest.
+    Used so a resumed run can append manifest rows for checksum-verified
+    skips (protocol section 4: a manifest row for EVERY pulled file)
+    without duplicating rows from the interrupted run."""
+    keys = set()
+    if os.path.exists(MANIFEST_CSV):
+        with open(MANIFEST_CSV, newline="") as f:
+            for row in csv.DictReader(f):
+                keys.add((row["date"], row["file"]))
+    return keys
+
+
+def manifest_row_wanted(r, already):
+    """True if a fetch-result row belongs in the pull manifest: every fresh
+    download, plus content-verified skips whose (date, file) is not already
+    manifested — so an interrupted-then-resumed day still ends up with one
+    manifest row per pulled file, never duplicates."""
+    if r["status"] == "ok":
+        return True
+    return (r["status"] == "skipped" and bool(r["sha256"]) and
+            (r["date"], r["file"]) not in already)
+
+
 def append_coverage(rows):
     """Append every attempt (ok/skipped/404/failed) to the coverage log, so
     per-day availability of every monitored pair is auditable."""
@@ -373,10 +495,21 @@ def append_coverage(rows):
 def cmd_pull_day(date_str, mark_done=True, limit=None):
     ensure_dirs()
     dt.date.fromisoformat(date_str)  # validate format early
-    upath, udate = latest_universe()
+    upath, udate = universe_for_day(date_str)
     if upath is None:
-        log.error("no universe table found; run --update-universe first")
+        log.error("no universe table dated before %s; run --update-universe "
+                  "first", date_str)
         return 2
+    # Remove stale partial downloads left behind by an interrupted run so
+    # they can never be confused with complete files.
+    for root in (RAW_AGG_DIR, RAW_K1M_DIR):
+        day_dir = os.path.join(root, date_str)
+        if os.path.isdir(day_dir):
+            for f in os.listdir(day_dir):
+                if f.endswith(".part"):
+                    log.warning("removing stale partial download: %s", f)
+                    os.remove(os.path.join(day_dir, f))
+
     symbols = included_symbols(upath)
     if limit:
         # Validation pull over a subset; never counts as a completed day.
@@ -395,6 +528,7 @@ def cmd_pull_day(date_str, mark_done=True, limit=None):
     total_bytes = 0
     manifest_rows = []
     coverage_rows = []
+    already = load_manifested_keys()
     lock = threading.Lock()
     tls = threading.local()
     t0 = time.time()
@@ -403,7 +537,17 @@ def cmd_pull_day(date_str, mark_done=True, limit=None):
         sym, url, local = job
         if not hasattr(tls, "session"):
             tls.session = requests.Session()
-        r = fetch_one(tls.session, url, local)
+        try:
+            r = fetch_one(tls.session, url, local)
+        except requests.RequestException as exc:
+            # Contain per-file transport failures (e.g. the DNS outage of
+            # 2026-07-27T08:23Z) so one exception cannot abort pool.map and
+            # lose the whole day's manifest/coverage rows. failed>0 already
+            # prevents mark-done, so the day is retried.
+            log.warning("fetch failed for %s: %s",
+                        os.path.basename(local), exc)
+            r = {"file": os.path.basename(local), "status": "failed",
+                 "bytes": 0, "sha256": "", "source_checksum_ok": ""}
         r.update(date=date_str, symbol=sym)
         return r
 
@@ -413,9 +557,9 @@ def cmd_pull_day(date_str, mark_done=True, limit=None):
                 stats[r["status"]] += 1
                 total_bytes += r["bytes"]
                 coverage_rows.append(r)
-                if r["status"] == "ok":
+                if manifest_row_wanted(r, already):
                     manifest_rows.append(r)
-                elif r["status"] == "404":
+                if r["status"] == "404":
                     log.info("404 (listing gap, continuing): %s", r["file"])
                 elif r["status"] == "failed":
                     log.warning("FAILED: %s", r["file"])
@@ -445,6 +589,23 @@ def cmd_pull_day(date_str, mark_done=True, limit=None):
                     "will retry on next run", date_str)
         return 3  # sentinel: day not yet published
 
+    day_age = (utc_today() - dt.date.fromisoformat(date_str)).days
+    if stats["failed"] == 0 and stats["404"] > 0 and day_age < LISTING_GAP_DEADLINE_DAYS:
+        # Partial publication: some universe symbols 404 while others are
+        # live. Observed 2026-07-27..30 at 33-51% of the universe. A day may
+        # only complete once every symbol has reached a definitive state, so
+        # retry until the listing-gap deadline. Re-probes are cheap: files
+        # already on disk with matching remote size are skipped.
+        log.warning("day %s: %d files 404 at age %dd (< %dd deadline); "
+                    "treating as late publication, will retry on next run",
+                    date_str, stats["404"], day_age, LISTING_GAP_DEADLINE_DAYS)
+        return 3  # sentinel: day not fully published yet
+
+    if stats["failed"] == 0 and stats["404"] > 0 and mark_done:
+        log.warning("day %s: %d files still 404 at age %dd (>= %dd deadline); "
+                    "accepting as genuine listing gaps", date_str,
+                    stats["404"], day_age, LISTING_GAP_DEADLINE_DAYS)
+
     if stats["failed"] == 0 and mark_done:
         done = set()
         if os.path.exists(DAYS_DONE_TXT):
@@ -468,13 +629,35 @@ def completed_days():
         return set(f.read().split())
 
 
+def cmd_requeue_day(date_str):
+    """Remove DATE from days_completed.txt so the next --daily re-pulls it.
+    Recovery goes through the collector, not hand-edited history."""
+    dt.date.fromisoformat(date_str)  # validate format early
+    days = []
+    if os.path.exists(DAYS_DONE_TXT):
+        with open(DAYS_DONE_TXT) as f:
+            days = f.read().split()
+    if date_str not in days:
+        print("requeue %s: not in days_completed.txt; nothing to do"
+              % date_str)
+        return 0
+    with open(DAYS_DONE_TXT, "w") as f:
+        for d in days:
+            if d != date_str:
+                f.write(d + "\n")
+    log.info("requeued %s (removed from days_completed.txt)", date_str)
+    print("requeue %s: removed; next --daily (or --pull-day) re-pulls it"
+          % date_str)
+    return 0
+
+
 def cmd_daily():
     ensure_dirs()
     today = utc_today()
 
     # Weekly universe refresh (protocol §3).
     upath, udate = latest_universe()
-    if upath is None or (today - udate).days > UNIVERSE_MAX_AGE_DAYS:
+    if upath is None or (today - udate).days >= UNIVERSE_MAX_AGE_DAYS:
         log.info("universe table missing or older than %d days; refreshing",
                  UNIVERSE_MAX_AGE_DAYS)
         cmd_update_universe()
@@ -530,6 +713,9 @@ def main(argv=None):
                    help="build and archive a new universe membership table")
     g.add_argument("--pull-day", metavar="YYYY-MM-DD",
                    help="pull one UTC day of daily archives")
+    g.add_argument("--requeue-day", metavar="YYYY-MM-DD",
+                   help="remove a day from days_completed.txt so the next "
+                        "--daily re-pulls it (recovery path)")
     g.add_argument("--daily", action="store_true",
                    help="pull all uncollected published days in the "
                         "evaluation window; refresh universe if stale")
@@ -539,10 +725,11 @@ def main(argv=None):
     args = p.parse_args(argv)
 
     if args.update_universe:
-        cmd_update_universe()
-        return 0
+        return 0 if cmd_update_universe() else 2
     if args.pull_day:
         return cmd_pull_day(args.pull_day, limit=args.limit)
+    if args.requeue_day:
+        return cmd_requeue_day(args.requeue_day)
     return cmd_daily()
 
 
