@@ -6,7 +6,32 @@ A deployment-condition **alert-burden audit** of published market-data pump-and-
 
 - **Protocol**: [`protocol/locked_protocol_v1.0.md`](protocol/locked_protocol_v1.0.md) — frozen before the first data point (tag `v1.0-protocol-freeze`); the primary evaluation stream is the first 12 complete UTC weeks after the freeze commit (from 2026-07-24 00:00 UTC).
 - **Collector**: `src/collector.py` — daily pulls from Binance official public archives (`data.binance.vision`), SHA-256 manifests + full coverage log for every attempt; raw pulls are not redistributed. Monitored universe: all Binance spot USDT pairs with status TRADING and spot trading enabled, excluding historical leveraged-token bases and a fixed 38-entry stable/fiat base list, minus the top 50 by trailing-30-day quote volume (mechanical rule; 405 pairs in the first table, 415 as of 2026-07-31; see protocol/amendments/).
-- **No results have been produced yet.** Weak or null results will be reported in full when they exist.
+- **Analysis pipeline**: `src/features.py`, `src/apply_detectors.py`, `src/burden.py`, `src/precision_proxy.py`, `src/run_analysis.py` — **frozen (tag `v1.0-analysis-freeze`) before the evaluation window closed**, so the analysis cannot have been shaped by the results.
+- **No results have been produced yet.** No endpoint value has been computed on the partial stream: the only run permitted before the window closes is `--partial-structural-check`, which is mechanically prevented from producing one. Weak or null results will be reported in full when they exist.
+
+## Analysis
+
+The pipeline reconstructs the upstream feature matrix from the collected aggTrades at 5 s / 15 s / 25 s (`features.py`, with the reconstruction limits R1–R7 documented in its module docstring), applies the three frozen §5 detectors with the 30-minute per-pair cooldown (`apply_detectors.py`), and produces the §2 primary alert-burden endpoint (`burden.py`) and the §2 secondary benchmark-rule-relative precision proxy (`precision_proxy.py`). `run_analysis.py` is the driver; every artifact it writes carries the protocol freeze commit, as §7 requires.
+
+### Analysis setup
+
+The frozen detector is fitted on the upstream **released** labelled matrices and is never retrained on this study's stream. Point the pipeline at a local checkout of the upstream dataset (pinned commit `d71250d4cb055dde2d415c8cba38a0dcd6eb6e16`, containing `labeled_features/features_{25S,15S,5S}.csv.gz`) through an environment variable; no local path is committed to this repository.
+
+```
+python3 -m venv .venv-analysis
+.venv-analysis/bin/pip install -r requirements-analysis.txt
+
+export ABA_UPSTREAM_DATASET=/path/to/pump-and-dump-dataset   # required
+export ABA_REF016_ROOT=/path/to/REF-2026-016-repository      # optional: verifies the frozen tau* constants
+
+.venv-analysis/bin/python src/run_analysis.py --partial-structural-check   # before the window closes
+.venv-analysis/bin/python src/run_analysis.py                              # only once all 84 days are complete
+.venv-analysis/bin/python -m unittest discover -s tests                    # unit tests
+```
+
+`--partial-structural-check` sets `ABA_STRUCTURAL_ONLY=1`, which makes every endpoint-producing function raise. Its output is limited to structural facts — days/pairs/pair-days/files/rows processed, denominators, schema and timezone conformance, timings, error counts — and contains no alert count, score, rate, burden value or precision-proxy count. Value-bearing behaviour (cooldown, both baselines, the pair-hours denominator, the bootstrap's clustering, the precision-proxy rule and its three variants) is verified against synthetic data with known answers in `tests/`.
+
+Documented switches, all defaulting to the rule the protocol and its amendments bind: `--pair-hours-rule` (default `verified-archive`; `universe-membership` is the sensitivity alternative), `--exclude-amendment2-pairs` (Amendment 2 §4's with/without check), `--warmup-days` (default `auto`; see limit R5).
 
 ## Operations
 

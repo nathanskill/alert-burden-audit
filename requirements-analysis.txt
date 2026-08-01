@@ -1,0 +1,20 @@
+# Analysis environment for REF-2026-017 (src/features.py, apply_detectors.py,
+# burden.py, precision_proxy.py, run_analysis.py and tests/).
+#
+# Pinned to the environment in which the upstream detector was frozen by
+# REF-2026-016, so the released-configuration random forest behaves
+# identically here (protocol section 5: applied exactly as released, never
+# retrained on this study's stream).
+#
+# The collector (src/collector.py) needs only `requests` and runs in its own
+# .venv; keep the two environments separate so an analysis dependency can
+# never disturb the unattended collection.
+#
+#   python3 -m venv .venv-analysis
+#   .venv-analysis/bin/pip install -r requirements-analysis.txt
+
+scikit-learn==1.6.1
+numpy==1.26.4
+pandas==2.2.3
+scipy==1.13.1
+requests==2.32.5
