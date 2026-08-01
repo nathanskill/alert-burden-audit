@@ -1,0 +1,25 @@
+{
+  "protocol_rule": "locked_protocol_v1.0.md \u00a76",
+  "amendment": "amendment_5_cross_exchange_gate.md (Option A: run late)",
+  "n_sampled": 30,
+  "n_cleared": 0,
+  "clearance": 0.0,
+  "threshold": 0.6,
+  "verdict": "no-go",
+  "verdict_meaning": "module permanently dropped and reported as such, per the frozen >=60% rule",
+  "run_timestamp_utc": "2026-08-01T12:02:48Z",
+  "lateness_disclosure": "Probe was due 2026-07-30 (one week after the 2026-07-23 freeze). It was not run on time; the slip was disclosed in Amendment 5 on 2026-07-31 and the probe executed under its Option A within the amendment's 2026-08-02 resolution deadline. See run_timestamp_utc for the actual run time.",
+  "per_venue_availability": {
+    "binance_archive": 19,
+    "kucoin": 0,
+    "gate": 0,
+    "okx": 2,
+    "note": "max venues available for any single event was 1, so no event cleared the >=2-venue bar"
+  },
+  "sanity_checks_post_run": {
+    "purpose": "verify 0/30 reflects genuine unavailability, not query-format bugs",
+    "kucoin": "same query format returns 1m candles for BTC-USDT both for a recent window and for 2019-09-01 (deep history served); sampled pairs fail with 'Unsupported trading pair' (400100) \u2014 pairs not listed",
+    "gate": "same query format returns 1m candles for BTC_USDT in a recent window; any historical window fails with HTTP 400 INVALID_PARAM_VALUE 'Candlestick too long ago. Maximum 10000 points ago are allowed' \u2014 Gate cannot serve 1m klines older than ~7 days at all",
+    "okx": "history-candles served genuine 2019 1m data for PAX-BTC (verified independently); it returned nothing in-window for the other 28 sampled events"
+  }
+}

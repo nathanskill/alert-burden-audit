@@ -1,0 +1,231 @@
+{
+  "protocol_rule": "locked_protocol_v1.0.md §6",
+  "amendment": "amendment_5_cross_exchange_gate.md (Option A: run late)",
+  "seed": 20260723,
+  "n_sample": 30,
+  "sort_key": "(symbol, group, date, hour, exchange) — CSV column order",
+  "sampling_code": "rows = list(csv.DictReader(open(pump_telegram_csv)))\nsorted_events = sorted(rows, key=lambda r: (r['symbol'], r['group'], r['date'], r['hour'], r['exchange']))\nsample = random.Random(20260723).sample(sorted_events, 30)",
+  "event_list": {
+    "file": "pump_telegram.csv",
+    "local_path": "pump-and-dump-dataset/pump_telegram.csv (local clone of upstream commit; path withheld, input pinned by sha256 + raw_url)",
+    "upstream": "https://github.com/SystemsLab-Sapienza/pump-and-dump-dataset",
+    "upstream_commit": "d71250d4cb055dde2d415c8cba38a0dcd6eb6e16",
+    "raw_url": "https://raw.githubusercontent.com/SystemsLab-Sapienza/pump-and-dump-dataset/d71250d4cb055dde2d415c8cba38a0dcd6eb6e16/pump_telegram.csv",
+    "sha256": "7ca4d2ac21b02888a269af6dd8a56415074d86f1e5e51e5de314f536a6a3b593",
+    "n_events": 1110
+  },
+  "pair_convention": "upstream downloader.py: <SYMBOL>/BTC",
+  "timestamp_convention": "date+hour treated as UTC",
+  "sampled_events": [
+    {
+      "symbol": "NAS",
+      "group": "BPF",
+      "date": "2020-12-23",
+      "hour": "18:00",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "PAX",
+      "group": "ATW",
+      "date": "2019-05-08",
+      "hour": "17:00",
+      "exchange": "yobit"
+    },
+    {
+      "symbol": "BRD",
+      "group": "CPI",
+      "date": "2019-04-14",
+      "hour": "19:01",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "BLZ",
+      "group": "CPI",
+      "date": "2019-04-13",
+      "hour": "17:00",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "SCRT",
+      "group": "FCS",
+      "date": "2018-03-31",
+      "hour": "16:18",
+      "exchange": "yobit"
+    },
+    {
+      "symbol": "BNT",
+      "group": "CPI",
+      "date": "2019-09-09",
+      "hour": "20:00",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "EDO",
+      "group": "CPI",
+      "date": "2020-03-26",
+      "hour": "15:59",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "PPT",
+      "group": "BPF",
+      "date": "2020-08-04",
+      "hour": "18:00",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "VITE",
+      "group": "CPI",
+      "date": "2020-04-13",
+      "hour": "11:59",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "AOA",
+      "group": "ATW",
+      "date": "2019-04-07",
+      "hour": "17:00",
+      "exchange": "yobit"
+    },
+    {
+      "symbol": "BDL",
+      "group": "FCS",
+      "date": "2018-02-11",
+      "hour": "15:58",
+      "exchange": "cryptopia"
+    },
+    {
+      "symbol": "SEL",
+      "group": "ATW",
+      "date": "2018-09-15",
+      "hour": "16:00",
+      "exchange": "yobit"
+    },
+    {
+      "symbol": "MDA",
+      "group": "BPF",
+      "date": "2021-01-03",
+      "hour": "17:00",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "SNM",
+      "group": "MPG",
+      "date": "2019-08-07",
+      "hour": "16:59",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "PAI",
+      "group": "ATW",
+      "date": "2018-08-13",
+      "hour": "18:01",
+      "exchange": "yobit"
+    },
+    {
+      "symbol": "ERC",
+      "group": "PKG",
+      "date": "2017-11-29",
+      "hour": "17:15",
+      "exchange": "bittrex"
+    },
+    {
+      "symbol": "ING",
+      "group": "ATW",
+      "date": "2019-03-20",
+      "hour": "17:00",
+      "exchange": "yobit"
+    },
+    {
+      "symbol": "MORE",
+      "group": "CPS",
+      "date": "2020-04-21",
+      "hour": "20:00",
+      "exchange": "bittrex"
+    },
+    {
+      "symbol": "ICN",
+      "group": "BPS",
+      "date": "2018-01-15",
+      "hour": "16:59",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "WINGS",
+      "group": "MPG",
+      "date": "2019-01-27",
+      "hour": "17:59",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "DGD",
+      "group": "BPS",
+      "date": "2018-01-09",
+      "hour": "20:00",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "WPR",
+      "group": "CW",
+      "date": "2020-02-10",
+      "hour": "20:00",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "PASL",
+      "group": "BPF",
+      "date": "2018-06-13",
+      "hour": "18:00",
+      "exchange": "cryptopia"
+    },
+    {
+      "symbol": "BRD",
+      "group": "BPF",
+      "date": "2020-12-06",
+      "hour": "18:00",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "NXS",
+      "group": "BPF",
+      "date": "2020-03-25",
+      "hour": "15:57",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "EVX",
+      "group": "FCS",
+      "date": "2018-04-02",
+      "hour": "16:30",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "OAX",
+      "group": "BPF",
+      "date": "2018-12-07",
+      "hour": "17:00",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "NAV",
+      "group": "CPI",
+      "date": "2019-12-19",
+      "hour": "17:00",
+      "exchange": "binance"
+    },
+    {
+      "symbol": "BAT",
+      "group": "ATW",
+      "date": "2019-09-24",
+      "hour": "17:00",
+      "exchange": "yobit"
+    },
+    {
+      "symbol": "PAX",
+      "group": "ATW",
+      "date": "2019-06-11",
+      "hour": "17:00",
+      "exchange": "yobit"
+    }
+  ]
+}
