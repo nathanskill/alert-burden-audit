@@ -34,7 +34,7 @@ full).
 
 The 30-event availability probe was executed exactly as §6 specifies on
 **2026-08-01** (12:02 UTC), within this amendment's 2026-08-02 resolution
-deadline. Artifacts in `artifacts/cross_exchange_gate_v1_20260802/`:
+deadline. Artifacts in `artifacts/cross_exchange_gate_v1_20260801/`:
 
 - `probe_cross_exchange_gate.py` — the exact probe code, including the
   sampling code;
